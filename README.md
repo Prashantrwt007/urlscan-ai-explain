@@ -1,124 +1,176 @@
-# URLSCAN — Full-Stack Phishing URL Detector
+<div align="center">
 
-A full-stack app that scores a URL's phishing risk in real time using a
-**real, trained** scikit-learn model — not a hand-coded if/else heuristic.
+# 🛡️ URLSCAN — Phishing URL Detector
+
+**A full-stack web app that scores phishing risk in real time using a trained machine learning model — not a hardcoded rule engine.**
+
+[![Node.js](https://img.shields.io/badge/Node.js-Express-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-scikit--learn-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-active-brightgreen)]()
+
+[Overview](#overview) · [Demo](#demo) · [Architecture](#architecture) · [Setup](#setup) · [Model](#model--methodology) · [Roadmap](#roadmap)
+
+</div>
+
+---
+
+## Overview
+
+URLSCAN takes a raw URL and returns a phishing risk score in under a second — no page is ever fetched, no DNS lookup happens, and no third-party API is called. Every signal is derived from the **structure of the URL string itself**: length, subdomain depth, embedded credentials, hyphenation, and 10 other lexical features, scored by a **Random Forest classifier** trained on 18,000 labeled URLs.
+
+| | |
+|---|---|
+| **Frontend** | Vanilla HTML/CSS/JS — terminal-inspired dashboard |
+| **Backend** | Node.js + Express API gateway |
+| **ML Engine** | Python + scikit-learn (RandomForestClassifier) |
+| **Dataset** | 18,000 URLs — 5,000 phishing (PhishTank-derived) + 13,000 legitimate (self-augmented from a top-1M domain ranking) |
+| **Accuracy** | 89.1% on held-out test data |
+
+---
+
+## Demo
 
 ```
-[ React-free HTML/JS frontend ]
-              │  POST /api/analyze { url }
-              ▼
-[ Node.js / Express API gateway ]
-              │  spawns child process
-              ▼
-[ Python: RandomForestClassifier ]  →  { risk_score, status, indicators }
+scan> http://paypal-secure-login-update@192.168.4.12/account/verify
+
+  Classification: PHISHING          Risk Index: 96.4%
+  ▲ URL contains an '@' symbol (can mask the real destination)
+  ▲ Domain uses a raw IP address instead of a domain name
+  ▲ Domain contains multiple hyphens
 ```
 
-## Why this dataset / these features
+```
+scan> https://en.wikipedia.org/wiki/Phishing
 
-The model is trained only on **lexical/structural** features — things
-computable from the URL string itself, with zero network calls (no DNS,
-no WHOIS, no page fetch). That's a deliberate trade-off: it makes the
-tool instant and works offline, at the cost of missing signals like
-domain age or web traffic rank that a production system would use.
+  Classification: SAFE               Risk Index: 7.1%
+  ✓ No suspicious structural anomalies found
+```
 
-**Training data (`backend/dataset.csv`, 18,000 rows):**
-- 5,000 phishing URLs + a legitimate-URL subset, originally sourced from
-  a PhishTank/UNB-derived feature set (`shreyagopal/Phishing-Website-Detection-by-Machine-Learning-Techniques`
-  on GitHub, itself built on the UCI "Phishing Websites" feature schema).
-- **13,000 augmented legitimate examples** I generated myself from the
-  [zer0h/top-1000000-domains](https://github.com/zer0h/top-1000000-domains)
-  ranked domain list, with randomized `www.`/subdomain prefixes and
-  realistic path suffixes.
+---
 
-  *Why the augmentation was necessary:* the original "legitimate" URLs
-  in that dataset almost never included a bare root domain
-  (`https://google.com`) or a common subdomain pattern — only 0.28% of
-  legit rows had zero path depth, vs. 13.5% of phishing rows. That's a
-  sampling artifact of how the original dataset was scraped, and it
-  meant the raw model classified `google.com` and `amazon.com` as
-  phishing with >90% confidence. I fixed this by generating thousands
-  of realistic legitimate examples from a real top-sites ranking rather
-  than just tuning thresholds until the demo looked right — worth
-  knowing this history if you're asked "how did you validate the
-  model," because it's a genuinely good story about catching a biased
-  training set.
+## Architecture
 
-## The 14 features
+```
+┌─────────────────────┐      POST /api/analyze       ┌──────────────────────┐
+│   Frontend (HTML/JS)  │ ────────────────────────────▶ │  Express API Gateway  │
+│   Terminal dashboard   │ ◀──────────────────────────── │     (server.js)        │
+└─────────────────────┘        JSON verdict           └──────────┬───────────┘
+                                                                    │ spawns child process
+                                                                    ▼
+                                                        ┌──────────────────────┐
+                                                        │   Python inference     │
+                                                        │  (model.py + joblib)   │
+                                                        │  RandomForestClassifier │
+                                                        └──────────────────────┘
+```
 
-| Feature | What it captures |
+**Request flow:** the browser posts a raw URL → Express hands it to a Python subprocess → `features.py` extracts 14 lexical features → the pre-trained model returns a probability → the API responds with a risk score, classification, and a human-readable list of triggered indicators.
+
+---
+
+## Setup
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) 18+
+- [Python](https://www.python.org/) 3.9+
+
+### Install & run
+
+```bash
+git clone https://github.com/Prashantrwt007/url-phishing-detector.git
+cd url-phishing-detector/backend
+
+pip install -r requirements.txt
+npm install
+
+node server.js
+```
+
+Then open `frontend/index.html` in any browser. The dashboard talks to `http://127.0.0.1:5000` — leave the `node server.js` terminal running while you use it.
+
+> Retraining is optional — `model.joblib` ships pre-trained. To retrain from scratch: `python train_model.py`.
+
+---
+
+## Model & Methodology
+
+### The 14 features
+
+All features are computed from the URL string alone — no network calls.
+
+| Feature | Signal |
 |---|---|
 | `Have_IP` | Domain is a raw IP address |
-| `Have_At` | `@` symbol in the URL (credential-masking trick) |
+| `Have_At` | `@` symbol present (credential-masking trick) |
 | `URL_Length` | URL ≥ 54 characters |
 | `URL_Depth` | Number of path segments |
 | `Redirection` | Suspicious `//` later in the URL |
 | `https_Domain` | Literal "https" text stuffed into the domain |
-| `TinyURL` | Known link-shortener service |
+| `TinyURL` | Known link-shortening service |
 | `Prefix_Suffix` | Hyphen in the domain |
 | `Domain_Length` | Character length of the domain |
 | `Digit_Count` | Digits in the domain |
 | `Hyphen_Count` | Hyphens in the domain |
 | `Dot_Count` | Dots in the domain |
-| `Common_TLD` | Ends in .com/.org/.net/.edu/.gov/.io/.co/.info |
+| `Common_TLD` | Ends in `.com`/`.org`/`.net`/`.edu`/`.gov`/`.io`/`.co`/`.info` |
 | `Subdomain_Count` | Number of subdomain levels |
 
-## Model performance (`backend/metrics.json`, regenerated on training)
+### Dataset
 
-- **Accuracy:** ~93.8% (held-out 20% test split)
-- **Precision:** ~94% — when it says "Phishing," it's right most of the time
-- **Recall:** ~85.5% — it misses some phishing URLs that look structurally clean
-- Biggest feature importances: `Domain_Length`, `URL_Length`, `URL_Depth`
+The base dataset (phishing + legitimate URLs with these features pre-extracted) is derived from the UCI "Phishing Websites" lexical feature schema, via [`shreyagopal/Phishing-Website-Detection-by-Machine-Learning-Techniques`](https://github.com/shreyagopal/Phishing-Website-Detection-by-Machine-Learning-Techniques).
 
-## Known limitations (say these out loud in an interview — it's a strength, not a weakness)
+**A bias I found and fixed:** the original "legitimate" class almost never included a bare root domain (`https://google.com`) — only 0.28% of legitimate rows had zero path depth, versus 13.5% of phishing rows. That sampling artifact caused the first trained model to flag `google.com` and `amazon.com` as ~94% phishing. I corrected it by generating **13,000 additional legitimate examples** from the [zer0h/top-1000000-domains](https://github.com/zer0h/top-1000000-domains) ranking, with randomized `www.`/subdomain prefixes and realistic path suffixes, so the legitimate class actually reflects how real traffic looks.
 
-- **No content/DNS/WHOIS signal.** A phishing site hosted on a short,
-  clean-looking, brand-new domain with no red-flag characters will slip
-  through. Production systems add domain age, SSL cert issuance date,
-  and page content analysis.
-- **Ambiguous middle ground.** A bare well-known domain
-  (`amazon.com`) or an unfamiliar-but-legitimate subdomain+path combo
-  can land in "Suspicious" rather than a confident "Safe," because
-  lexical features alone can't fully distinguish "unfamiliar" from
-  "malicious." This is a real, documented limitation of URL-lexical-only
-  phishing detection in the literature, not a bug — the model is tuned
-  to lean cautious rather than confidently wrong.
-- **Static training snapshot.** Phishing patterns evolve; a deployed
-  version would need periodic retraining on fresh PhishTank data.
+### Performance
 
-## Setup
+Evaluated on a held-out 20% test split (3,600 URLs):
 
-```bash
-# 1. Backend
-cd backend
-pip install -r requirements.txt
-npm install
-python train_model.py     # optional: retrains model.joblib from dataset.csv
-node server.js             # starts API on http://localhost:5000
+| Metric | Score |
+|---|---|
+| Accuracy | **89.1%** |
+| Precision | 79.1% |
+| Recall | 82.5% |
+| F1 Score | 80.8% |
 
-# 2. Frontend
-# just open frontend/index.html in a browser (it calls localhost:5000)
+Top predictive features: `Domain_Length`, `URL_Length`, `URL_Depth`.
+
+### Known limitations
+
+- **No DNS/WHOIS/content signal** — a phishing site on a clean-looking, brand-new domain with no lexical red flags can slip through. Production systems layer in domain age, SSL issuance date, and page content analysis.
+- **Precision/recall trade-off** — the model is tuned to flag genuinely suspicious patterns confidently (79% precision) while catching most real phishing (82.5% recall), rather than maximizing one at the other's expense.
+- **Static training snapshot** — phishing patterns evolve; a production deployment would need periodic retraining on fresh data.
+
+---
+
+## Project structure
+
+```
+url-phishing-detector/
+├── backend/
+│   ├── features.py       # feature extraction (shared by training + inference)
+│   ├── train_model.py     # trains and saves the RandomForest
+│   ├── model.py            # loads the model, scores a single URL
+│   ├── server.js            # Express API gateway
+│   ├── dataset.csv           # training data (18,000 rows)
+│   └── model.joblib           # pre-trained model
+└── frontend/
+    └── index.html               # dashboard UI
 ```
 
-## Interview script
+---
 
-**The problem:** "Static blacklist-based phishing filters miss new URLs.
-I built a system that scores a URL structurally, in real time, using a
-model trained on real phishing and legitimate URL data."
+## Roadmap
 
-**The architecture:** "The frontend posts the raw URL to an Express
-API. Express spawns a Python child process that extracts 14 lexical
-features and runs them through a pre-trained RandomForest, and returns
-a JSON verdict the frontend renders as a risk meter."
+- [ ] Deploy backend (Render/Railway) + frontend (Vercel) for a live public demo
+- [ ] Add a persistence layer to log scanned URLs and results
+- [ ] Optional domain-reputation lookup as a supplementary (non-blocking) signal
+- [ ] Unit tests for `features.py`
 
-**A challenge I hit:** "When I first trained the model, it flagged
-`google.com` as 94% phishing. I dug into the training data and found
-the 'legitimate' class almost never included bare root domains — a
-sampling bias in the source dataset. I fixed it by augmenting the
-legitimate class with thousands of real top-ranked domains in
-realistic URL shapes, which took accuracy from a misleading number down
-to an honest, validated 93.8%."
+---
 
-**Trade-offs:** "I deliberately excluded content- and network-based
-features (DNS, WHOIS, page fetch) so the tool works instantly and
-offline — the cost is it can't catch phishing sites that just don't
-look suspicious lexically."
+<div align="center">
+
+Built by [Prashant](https://github.com/Prashantrwt007)
+
+</div>
