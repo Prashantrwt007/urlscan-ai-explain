@@ -274,6 +274,10 @@
       <div class="label">Feature checks</div>
       <div id="indicatorList"></div>
     </div>
+    <div class="indicators" id="explanationBlock" style="display:none;">
+      <div class="label">AI analyst explanation</div>
+      <div id="explanationText" style="line-height:1.5; opacity:0.9;">Generating explanation…</div>
+    </div>
   </div>
 
   <footer>
@@ -282,7 +286,9 @@
 </div>
 
 <script>
-const API_URL = 'http://127.0.0.1:5000/api/analyze';
+const API_BASE = 'http://127.0.0.1:5000';
+const API_URL = API_BASE + '/api/analyze';
+const EXPLAIN_URL = API_BASE + '/api/explain';
 
 function fillAndRun(url){
   document.getElementById('urlInput').value = url;
@@ -319,6 +325,7 @@ async function analyze(){
       return;
     }
     render(data);
+    getExplanation(data);
   }catch(err){
     if(err.name === 'AbortError'){
       alert('Timed out waiting for the backend (10s). Is `node server.js` running in a terminal? Check that terminal for errors.');
@@ -364,6 +371,25 @@ function render(data){
   });
 
   result.style.display = 'block';
+}
+
+async function getExplanation(analyzeResult){
+  const block = document.getElementById('explanationBlock');
+  const textEl = document.getElementById('explanationText');
+  block.style.display = 'block';
+  textEl.textContent = 'Generating explanation…';
+
+  try{
+    const res = await fetch(EXPLAIN_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(analyzeResult)
+    });
+    const data = await res.json();
+    textEl.textContent = data.explanation || ('Could not generate explanation: ' + (data.error || 'unknown error'));
+  }catch(err){
+    textEl.textContent = 'Could not reach the explanation service.';
+  }
 }
 </script>
 
