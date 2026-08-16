@@ -286,7 +286,7 @@
 </div>
 
 <script>
-const API_BASE = 'http://127.0.0.1:5000';
+const API_BASE = 'https://urlscan-ai-explain.onrender.com';
 const API_URL = API_BASE + '/api/analyze';
 const EXPLAIN_URL = API_BASE + '/api/explain';
 
@@ -310,7 +310,7 @@ async function analyze(){
 
   try{
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
     const res = await fetch(API_URL, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
