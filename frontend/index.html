@@ -373,22 +373,49 @@ function render(data){
   result.style.display = 'block';
 }
 
-async function getExplanation(analyzeResult){
+async function getExplanation(analyzeResult, isRetry){
   const block = document.getElementById('explanationBlock');
   const textEl = document.getElementById('explanationText');
   block.style.display = 'block';
-  textEl.textContent = 'Generating explanation…';
+  textEl.innerHTML = 'Generating explanation…';
 
-  try{
-    const res = await fetch(EXPLAIN_URL, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(analyzeResult)
-    });
-    const data = await res.json();
-    textEl.textContent = data.explanation || ('Could not generate explanation: ' + (data.error || 'unknown error'));
-  }catch(err){
-    textEl.textContent = 'Could not reach the explanation service.';
+  async function attempt(){
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 40000);
+    try{
+      const res = await fetch(EXPLAIN_URL, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(analyzeResult),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const data = await res.json();
+      return data.explanation || null;
+    }catch(err){
+      clearTimeout(timeoutId);
+      return null;
+    }
+  }
+
+  let explanation = await attempt();
+  if(!explanation && !isRetry){
+    textEl.innerHTML = 'Still working on it…';
+    explanation = await attempt();
+  }
+
+  if(explanation){
+    textEl.textContent = explanation;
+  }else{
+    textEl.innerHTML = 'Could not generate an explanation right now (the AI service may be busy or the backend is still waking up). ' +
+      '<a href="#" id="retryExplain" style="color:#6ee7b7;text-decoration:underline;">Try again</a>';
+    const retryLink = document.getElementById('retryExplain');
+    if(retryLink){
+      retryLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        getExplanation(analyzeResult, false);
+      });
+    }
   }
 }
 </script>
