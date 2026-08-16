@@ -88,12 +88,37 @@ Structural indicators detected: ${indicators.join(', ')}
 
 Write a short, plain-language explanation (3-5 sentences) of why this URL received this score. Reference the specific indicators. Do not repeat the raw numbers back verbatim -- explain what they mean in practice. If the URL looks safe, say so plainly and briefly explain what made it look clean.`;
 
-    try {
-        const response = await genAI.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: prompt,
-        });
+    async function callGemini(model) {
+        return genAI.models.generateContent({ model, contents: prompt });
+    }
 
+    const attempts = [
+        { model: 'gemini-flash-latest', wait: 0 },
+        { model: 'gemini-flash-latest', wait: 2000 },
+        { model: 'gemini-2.5-flash-lite', wait: 3000 },
+    ];
+
+    let response;
+    let lastErr;
+    for (const attempt of attempts) {
+        if (attempt.wait) await new Promise((r) => setTimeout(r, attempt.wait));
+        try {
+            response = await callGemini(attempt.model);
+            lastErr = null;
+            break;
+        } catch (err) {
+            lastErr = err;
+            const permanent = err.message && (err.message.includes('NOT_FOUND') || err.message.includes('400') || err.message.includes('API_KEY_INVALID'));
+            if (permanent) break;
+        }
+    }
+
+    if (lastErr) {
+        console.error('Gemini error:', lastErr.message);
+        return res.status(500).json({ error: 'Failed to generate explanation.', details: lastErr.message });
+    }
+
+    try {
         res.json({ explanation: response.text });
     } catch (err) {
         console.error('Gemini error:', err.message);
