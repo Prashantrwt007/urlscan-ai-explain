@@ -256,6 +256,7 @@
       <button id="scanBtn" onclick="analyze()">Run analysis</button>
     </div>
     <div class="hint">try: <button onclick="fillAndRun('http://paypal-secure-login-update@192.168.4.12/account/verify')">a spoofed login link</button> &middot; <button onclick="fillAndRun('https://en.wikipedia.org/wiki/Phishing')">a real Wikipedia page</button></div>
+    <div id="scanStatus" style="min-height:20px;margin-top:10px;font-size:13px;opacity:0.75;"></div>
   </div>
 
   <div id="result">
@@ -302,40 +303,55 @@ document.getElementById('urlInput').addEventListener('keydown', (e) => {
 async function analyze(){
   const input = document.getElementById('urlInput');
   const btn = document.getElementById('scanBtn');
+  const status = document.getElementById('scanStatus');
   const url = input.value.trim();
   if(!url){ input.focus(); return; }
 
   btn.disabled = true;
   btn.textContent = 'Scanning…';
+  status.textContent = '';
 
-  try{
+  async function attempt(timeoutMs){
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
-    const res = await fetch(API_URL, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({url}),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    const data = await res.json();
-
-    if(data.error){
-      alert('Error: ' + data.error);
-      return;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try{
+      const res = await fetch(API_URL, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({url}),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const data = await res.json();
+      return { ok: !data.error, data };
+    }catch(err){
+      clearTimeout(timeoutId);
+      return { ok:false, data:null };
     }
-    render(data);
-    getExplanation(data);
-  }catch(err){
-    if(err.name === 'AbortError'){
-      alert('Timed out waiting for the backend (10s). Is `node server.js` running in a terminal? Check that terminal for errors.');
-    } else {
-      alert('Could not reach the backend at ' + API_URL + '. Is `node server.js` running?');
-    }
-  }finally{
-    btn.disabled = false;
-    btn.textContent = 'Run analysis';
   }
+
+  let result = await attempt(20000);
+
+  if(!result.ok){
+    status.textContent = 'Backend is waking up (free hosting tier) — this can take up to a minute on the first request. Retrying…';
+    result = await attempt(50000);
+  }
+
+  if(!result.ok){
+    status.innerHTML = 'Still having trouble reaching the backend. ' +
+      '<a href="#" id="retryScan" style="color:#6ee7b7;text-decoration:underline;">Try again</a>';
+    const retryLink = document.getElementById('retryScan');
+    if(retryLink){
+      retryLink.addEventListener('click', (e) => { e.preventDefault(); analyze(); });
+    }
+  }else{
+    status.textContent = '';
+    render(result.data);
+    getExplanation(result.data);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run analysis';
 }
 
 function render(data){
