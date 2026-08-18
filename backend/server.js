@@ -93,9 +93,10 @@ Write a short, plain-language explanation (3-5 sentences) of why this URL receiv
     }
 
     const attempts = [
-        { model: 'gemini-flash-latest', wait: 0 },
-        { model: 'gemini-flash-latest', wait: 2000 },
+        { model: 'gemini-2.5-flash-lite', wait: 0 },
+        { model: 'gemini-flash-latest', wait: 1500 },
         { model: 'gemini-2.5-flash-lite', wait: 3000 },
+        { model: 'gemini-flash-latest', wait: 5000 },
     ];
 
     let response;

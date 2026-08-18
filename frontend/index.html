@@ -291,6 +291,10 @@ const API_BASE = 'https://urlscan-ai-explain.onrender.com';
 const API_URL = API_BASE + '/api/analyze';
 const EXPLAIN_URL = API_BASE + '/api/explain';
 
+// Fire-and-forget: start waking the free-tier backend the instant the page
+// loads, so by the time the user clicks "Run analysis" it has a head start.
+fetch(API_BASE + '/api/health').catch(() => {});
+
 function fillAndRun(url){
   document.getElementById('urlInput').value = url;
   analyze();
@@ -415,8 +419,12 @@ async function getExplanation(analyzeResult, isRetry){
   }
 
   let explanation = await attempt();
-  if(!explanation && !isRetry){
+  if(!explanation){
     textEl.innerHTML = 'Still working on it…';
+    explanation = await attempt();
+  }
+  if(!explanation){
+    textEl.innerHTML = 'AI service is busy, trying once more…';
     explanation = await attempt();
   }
 
